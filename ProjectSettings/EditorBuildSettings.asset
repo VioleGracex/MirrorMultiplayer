@@ -4,5 +4,8 @@
 EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
-  m_Scenes: []
+  m_Scenes:
+  - enabled: 1
+    path: Assets/EasyStart Third Person Controller/Demo.unity
+    guid: b547c30cf02f9704f894481353d43e5a
   m_configObjects: {}

@@ -2,11 +2,11 @@
 
 /// <summary>
 /// Camera movement script for third person games.
-/// This Script should not be applied to the camera! It is attached to an empty object,
-/// and inside it (as a child object) should be your game's MainCamera.
-/// The script will automatically parent the MainCamera if it's not already a child,
-/// and will handle following and rotating around the player.
+/// Attach this script to a scene object (the "camera rig").
+/// The MainCamera should be a child of this object in the scene.
+/// This script will move/rotate the rig to follow the local player.
 /// Press 'C' to toggle cursor lock/hide.
+/// When cursor is shown, camera follows player but does not rotate with mouse.
 /// </summary>
 public class CameraController : MonoBehaviour
 {
@@ -24,102 +24,87 @@ public class CameraController : MonoBehaviour
     [Tooltip("Camera offset relative to this GameObject (e.g. new Vector3(0, 5, -8) for classic third person).")]
     public Vector3 cameraLocalOffset = new Vector3(0, 5, -8);
 
-    float mouseX;
-    float mouseY;
-    float offsetDistanceY;
-
-    [SerializeField] private Transform player;
     [SerializeField] private Camera cam;
 
-    // Track cursor lock state
+    private Transform player;
+    private float mouseX;
+    private float mouseY;
     private bool isCursorLocked = true;
 
     void Start()
     {
-        // Find player if not assigned
-        if (player == null)
-        {
-            GameObject playerObj = GameObject.FindWithTag("Player");
-            if (playerObj != null)
-            {
-                player = playerObj.transform;
-            }
-            else
-            {
-                Debug.LogWarning("CameraController: No GameObject with tag 'Player' found. Camera will not follow.");
-            }
-        }
-
-        // Find and assign camera if not set
         if (!cam)
             cam = Camera.main;
 
-        // If the camera is not already a child, parent and reset offset
-        if (cam != null && cam.transform.parent != transform)
+        SetCursorLock(false);
+
+        if (cam)
         {
-            cam.transform.SetParent(transform);
             cam.transform.localPosition = cameraLocalOffset;
             cam.transform.localRotation = Quaternion.identity;
         }
-
-        offsetDistanceY = transform.position.y;
-
-        // Start with cursor locked and hidden
-        SetCursorLock(true);
     }
 
     void Update()
     {
+        if (Input.GetKeyDown(KeyCode.C))
+            SetCursorLock(!isCursorLocked);
+
+        if (player == null)
+            FindLocalPlayer();
+
         if (player == null)
             return;
 
-        // Toggle cursor lock/hide with C
-        if (Input.GetKeyDown(KeyCode.C))
+        // Always follow player position even if cursor is visible
+        transform.position = player.position;
+
+        if (canZoom && cam != null && Input.GetAxis("Mouse ScrollWheel") != 0)
         {
-            SetCursorLock(!isCursorLocked);
+            cam.fieldOfView -= Input.GetAxis("Mouse ScrollWheel") * sensitivity * 2;
+            cam.fieldOfView = Mathf.Clamp(cam.fieldOfView, 20f, 80f);
         }
 
-        // Only rotate/move camera if cursor is locked
+        // Only rotate camera with mouse if cursor is locked
         if (isCursorLocked)
         {
-            // Follow player - camera rig offset
-            transform.position = player.position + new Vector3(0, offsetDistanceY, 0);
-
-            // Set camera zoom when mouse wheel is scrolled
-            if (canZoom && cam != null && Input.GetAxis("Mouse ScrollWheel") != 0)
-            {
-                cam.fieldOfView -= Input.GetAxis("Mouse ScrollWheel") * sensitivity * 2;
-                // Clamp field of view for reasonable zoom range
-                cam.fieldOfView = Mathf.Clamp(cam.fieldOfView, 20f, 80f);
-            }
-
-            // Checker for right click to move camera
             if (clickToMoveCamera && Input.GetAxisRaw("Fire2") == 0)
                 return;
 
-            // Calculate new rotation
             mouseX += Input.GetAxis("Mouse X") * sensitivity;
             mouseY += Input.GetAxis("Mouse Y") * sensitivity;
-            // Apply camera vertical limits
             mouseY = Mathf.Clamp(mouseY, cameraLimit.x, cameraLimit.y);
 
-            // Rotate the rig, camera as child will follow
             transform.rotation = Quaternion.Euler(-mouseY, mouseX, 0);
         }
+        // If cursor is not locked, do not change rotation (camera will keep last rotation)
     }
 
     private void SetCursorLock(bool locked)
     {
         isCursorLocked = locked;
-        if (locked)
+        Cursor.lockState = locked ? CursorLockMode.Locked : CursorLockMode.None;
+        Cursor.visible = !locked;
+    }
+
+    private void FindLocalPlayer()
+    {
+        foreach (var p in FindObjectsOfType<PlayerNetworkController>())
         {
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            if (p.isLocalPlayer)
+            {
+                player = p.transform;
+                SetCursorLock(true);
+                break;
+            }
         }
-        else
-        {
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
-        }
+    }
+
+    /// <summary>
+    /// Allows runtime assignment of the player to follow.
+    /// </summary>
+    public void SetFollowTarget(Transform target)
+    {
+        player = target;
     }
 }

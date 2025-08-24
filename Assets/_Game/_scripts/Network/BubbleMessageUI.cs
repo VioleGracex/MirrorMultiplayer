@@ -17,6 +17,12 @@ public class BubbleMessageUI : MonoBehaviour
     [Header("Padding")]
     [SerializeField] private Vector2 padding = new Vector2(24, 10);
 
+    [Header("Bubble Size Constraints (World Units)")]
+    [Tooltip("The maximum width of the bubble in world units.")]
+    [SerializeField] private float maxWidth = 2f;
+    [Tooltip("The maximum height of the bubble in world units.")]
+    [SerializeField] private float maxHeight = 0.5f;
+
     private RectTransform backgroundRect;
     private RectTransform textRect;
 
@@ -26,10 +32,15 @@ public class BubbleMessageUI : MonoBehaviour
         if (!backgroundImage) backgroundImage = GetComponentInChildren<Image>();
         if (backgroundImage != null) backgroundRect = backgroundImage.rectTransform;
         if (messageText != null) textRect = messageText.rectTransform;
+        if (messageText != null)
+        {
+            // Set ellipsis if not set in inspector
+            messageText.overflowMode = TextOverflowModes.Ellipsis;
+        }
     }
 
     /// <summary>
-    /// Show a message in the bubble. The background will auto-resize.
+    /// Show a message in the bubble. The background will auto-resize within max width/height.
     /// </summary>
     public void Show(string msg)
     {
@@ -37,12 +48,24 @@ public class BubbleMessageUI : MonoBehaviour
         {
             messageText.text = msg;
             messageText.ForceMeshUpdate();
-            Vector2 textSize = messageText.GetRenderedValues(false);
+
+            // Calculate preferred values
+            Vector2 preferred = messageText.GetPreferredValues(msg, maxWidth, maxHeight);
+
+            // Clamp preferred size to maxWidth/maxHeight
+            float width = Mathf.Min(preferred.x, maxWidth);
+            float height = Mathf.Min(preferred.y, maxHeight);
+
+            // Set the rects
+            if (textRect != null)
+                textRect.sizeDelta = new Vector2(width, height);
+
             if (backgroundRect != null)
-                backgroundRect.sizeDelta = textSize + padding;
+                backgroundRect.sizeDelta = new Vector2(width, height) + padding;
         }
         // Only disables/enables the bubble UI, not the parent/player!
-        backgroundImage.gameObject.SetActive(true);
+        if (backgroundImage != null)
+            backgroundImage.gameObject.SetActive(true);
     }
 
     /// <summary>
@@ -50,6 +73,7 @@ public class BubbleMessageUI : MonoBehaviour
     /// </summary>
     public void Hide()
     {
-         backgroundImage.gameObject.SetActive(false);
+        if (backgroundImage != null)
+            backgroundImage.gameObject.SetActive(false);
     }
 }

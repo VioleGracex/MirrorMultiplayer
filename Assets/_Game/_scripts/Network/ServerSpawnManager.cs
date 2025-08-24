@@ -2,7 +2,6 @@ using Mirror;
 using UnityEngine;
 using System.Collections.Generic;
 
-[RequireComponent(typeof(NetworkIdentity))]
 public class ServerSpawnManager : NetworkBehaviour
 {
     public static ServerSpawnManager Instance { get; private set; }
@@ -33,11 +32,22 @@ public class ServerSpawnManager : NetworkBehaviour
 
         var prefab = spawnablePrefabs[prefabIndex];
 
-        // Approval logic: No spawn below ground
+        // If request is below ground, move it just above ground before checking space.
         if (position.y < 0)
         {
-            Debug.LogWarning("Denied spawn below ground.");
-            return;
+            // Raycast upwards to find the ground from below
+            RaycastHit hit;
+            // Assume ground is at layer 0 (Default) - you can adjust this as needed
+            if (Physics.Raycast(new Vector3(position.x, 1000f, position.z), Vector3.down, out hit, Mathf.Infinity))
+            {
+                // Place slightly above hit point
+                position.y = hit.point.y + checkRadius + 0.05f;
+            }
+            else
+            {
+                // If no ground found, fallback to y=0.5
+                position.y = checkRadius + 0.05f;
+            }
         }
 
         // Approval logic: Check if space is empty using Physics.CheckSphere
