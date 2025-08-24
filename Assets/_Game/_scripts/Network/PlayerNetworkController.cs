@@ -2,23 +2,21 @@ using Mirror;
 using TMPro;
 using UnityEngine;
 
-/// <summary>
-/// Handles player networking, nickname display, bubble message display,
-/// animation sync, and requests server-approved spawning of a cube in front of the player.
-/// The billboarding is handled separately by a Billboard script.
-/// </summary>
+// Handles player networking, nickname display, bubble message display, animation sync, and cube spawning.
 public class PlayerNetworkController : NetworkBehaviour
 {
+
+    #region Inspector Fields
     [Header("Nickname")]
     [SyncVar(hook = nameof(OnNicknameChanged))]
     public string playerNickname = "Player";
     [SerializeField] private TextMeshProUGUI nicknameBillboardInstance;
 
     [Header("Bubble Message")]
-    [SerializeField] private BubbleMessageUI bubbleMessage; // Assign in inspector
+    [SerializeField] private BubbleMessageUI bubbleMessage;
 
     [Header("Animation")]
-    public Animator animator; // Assign in inspector or via GetComponent
+    public Animator animator;
 
     [Header("Cube Spawn")]
     public GameObject cubePrefab;
@@ -26,29 +24,38 @@ public class PlayerNetworkController : NetworkBehaviour
     public float cubeCheckRadius = 0.5f;
     public Vector2 cubeSpawnOffset = Vector2.zero;
     public LayerMask cubeCheckLayerMask = ~0;
+    #endregion
 
-    Vector3 lastCubeCheckPos;
+    #region Private State
+    private Vector3 lastCubeCheckPos;
+    #endregion
 
-   void Awake()
+    #region Unity Lifecycle
+    void Awake()
     {
+        // Ensure nickname billboard is assigned
         if (nicknameBillboardInstance == null)
             nicknameBillboardInstance = GetComponentInChildren<TextMeshProUGUI>(true);
 
+        // Register with nickname UI
         PlayerNicknameInputUI.Instance?.RegisterPlayer(this);
     }
+
     void OnDestroy()
     {
-        // Remove self from UI player list if possible
+        // Unregister from nickname UI
         PlayerNicknameInputUI.Instance?.UnregisterPlayer(this);
     }
+
     public override void OnStartLocalPlayer()
     {
-        CmdSetNickname("Player_" + netId);
+        // Assign a default unique nickname for the local player
+        CmdSetNickname($"Player_{netId}");
     }
 
     void Start()
     {
-        // Always update nickname for late joiners
+        // Update nickname display for late joiners
         if (nicknameBillboardInstance)
             nicknameBillboardInstance.text = playerNickname;
     }
@@ -58,21 +65,95 @@ public class PlayerNetworkController : NetworkBehaviour
         // Only allow local player to process input
         if (!isLocalPlayer) return;
 
-        // Show bubble message on local input
-        if (Input.GetKeyDown(KeyCode.H))
-        {
-            CmdShowBubbleMessage("Hello !");
-        }
+        HandleBubbleMessageInput();
+        HandleAnimationInput();
+        HandleCubeSpawnInput();
+    }
+    #endregion
 
-        // Animation sync for Mirror (run param only set if not paused/menu)
+    #region Nickname Logic
+    public void SetNickname(string nickname)
+    {
+        if (isLocalPlayer)
+            CmdSetNickname(nickname);
+    }
+
+    [Command]
+    void CmdSetNickname(string nickname)
+    {
+        playerNickname = nickname;
+    }
+
+    void OnNicknameChanged(string oldName, string newName)
+    {
+        if (nicknameBillboardInstance == null)
+            nicknameBillboardInstance = GetComponentInChildren<TextMeshProUGUI>(true);
+        if (nicknameBillboardInstance)
+            nicknameBillboardInstance.text = newName;
+    }
+    #endregion
+
+    #region Bubble Message Logic
+    void HandleBubbleMessageInput()
+    {
+        if (Input.GetKeyDown(KeyCode.H))
+            CmdShowBubbleMessage("Hello !");
+    }
+
+    [Command]
+    void CmdShowBubbleMessage(string msg)
+    {
+        RpcShowBubbleMessage(msg);
+    }
+
+    [ClientRpc]
+    void RpcShowBubbleMessage(string msg)
+    {
+        if (bubbleMessage)
+        {
+            bubbleMessage.Show(msg);
+            CancelInvoke(nameof(HideBubbleMessage));
+            Invoke(nameof(HideBubbleMessage), 2f);
+        }
+    }
+
+    void HideBubbleMessage()
+    {
+        if (bubbleMessage)
+            bubbleMessage.Hide();
+    }
+    #endregion
+
+    #region Animation Logic
+    [SyncVar(hook = nameof(OnMoveAnimChanged))]
+    public bool animIsMoving;
+
+    void HandleAnimationInput()
+    {
         if (animator && !Cursor.visible)
         {
             float move = Mathf.Abs(Input.GetAxis("Horizontal")) + Mathf.Abs(Input.GetAxis("Vertical"));
             bool isMoving = move > 0.1f;
             CmdUpdateAnim(isMoving);
         }
+    }
 
-        // Request to spawn cube in front of player if F is pressed
+    [Command]
+    void CmdUpdateAnim(bool isMoving)
+    {
+        animIsMoving = isMoving;
+    }
+
+    void OnMoveAnimChanged(bool oldVal, bool newVal)
+    {
+        if (animator)
+            animator.SetBool("run", newVal);
+    }
+    #endregion
+
+    #region Cube Spawning Logic
+    void HandleCubeSpawnInput()
+    {
         if (Input.GetKeyDown(KeyCode.F))
         {
             Vector3 spawnPos = transform.position
@@ -112,80 +193,6 @@ public class PlayerNetworkController : NetworkBehaviour
         }
     }
 
-    #region Nickname
-
-    public void SetNickname(string nickname)
-    {
-        if (isLocalPlayer)
-            CmdSetNickname(nickname);
-    }
-
-    [Command]
-    void CmdSetNickname(string nickname)
-    {
-        playerNickname = nickname;
-    }
-
-    void OnNicknameChanged(string oldName, string newName)
-    {
-        // Always try to find the TextMeshProUGUI if not set (handles remote clients and late join)
-        if (nicknameBillboardInstance == null)
-            nicknameBillboardInstance = GetComponentInChildren<TextMeshProUGUI>(true);
-
-        if (nicknameBillboardInstance)
-            nicknameBillboardInstance.text = newName;
-    }
-
-    #endregion
-
-    #region Bubble Message
-
-    [Command]
-    void CmdShowBubbleMessage(string msg)
-    {
-        RpcShowBubbleMessage(msg);
-    }
-
-    [ClientRpc]
-    void RpcShowBubbleMessage(string msg)
-    {
-        if (bubbleMessage)
-        {
-            bubbleMessage.Show(msg);
-            CancelInvoke(nameof(HideBubbleMessage));
-            Invoke(nameof(HideBubbleMessage), 2f);
-        }
-    }
-
-    void HideBubbleMessage()
-    {
-        if (bubbleMessage)
-            bubbleMessage.Hide();
-    }
-
-    #endregion
-
-    #region Animation Sync
-
-    [SyncVar(hook = nameof(OnMoveAnimChanged))]
-    public bool animIsMoving;
-
-    [Command]
-    void CmdUpdateAnim(bool isMoving)
-    {
-        animIsMoving = isMoving;
-    }
-
-    void OnMoveAnimChanged(bool oldVal, bool newVal)
-    {
-        if (animator)
-            animator.SetBool("run", newVal);
-    }
-
-    #endregion
-
-    #region Cube Spawning
-
     [Command]
     void CmdRequestSpawn(int prefabIndex, Vector3 pos, Quaternion rot, int layerMaskValue, float checkRadius)
     {
@@ -194,11 +201,9 @@ public class PlayerNetworkController : NetworkBehaviour
         else
             Debug.LogWarning("No ServerSpawnManager instance found on server.");
     }
-
     #endregion
 
     #region Gizmos
-
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.yellow;
@@ -212,6 +217,6 @@ public class PlayerNetworkController : NetworkBehaviour
         Gizmos.color = Color.cyan;
         Gizmos.DrawLine(transform.position, checkPos);
     }
-
     #endregion
+
 }
